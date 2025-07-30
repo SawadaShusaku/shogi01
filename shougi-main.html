@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡単将棋アプリ</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background: #f5f5dc;
+        }
+        
+        .board {
+            display: grid;
+            grid-template-columns: repeat(9, 40px);
+            grid-template-rows: repeat(9, 40px);
+            gap: 1px;
+            background: #8b4513;
+            padding: 10px;
+            border: 3px solid #654321;
+        }
+        
+        .cell {
+            width: 40px;
+            height: 40px;
+            background: #deb887;
+            border: 1px solid #8b4513;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .cell:hover {
+            background: #f0e68c;
+        }
+        
+        .cell.selected {
+            background: #90ee90 !important;
+        }
+        
+        .cell.possible {
+            background: #ffb6c1 !important;
+        }
+        
+        .piece {
+            font-weight: bold;
+            color: #000;
+            user-select: none;
+        }
+        
+        .enemy {
+            color: #c41e3a;
+            transform: rotate(180deg);
+        }
+        
+        .info {
+            margin: 20px 0;
+            font-size: 18px;
+        }
+        
+        .controls {
+            margin: 10px 0;
+        }
+        
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 0 5px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        .captured {
+            margin: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background: #f9f9f9;
+            min-height: 60px;
+        }
+    </style>
+</head>
+<body>
+    <h1>簡単将棋アプリ</h1>
+    
+    <div class="info">
+        <span id="turn">あなたの番です</span>
+    </div>
+    
+    <div class="controls">
+        <button onclick="newGame()">新しいゲーム</button>
+        <button onclick="undoMove()">一手戻す</button>
+    </div>
+    
+    <div class="captured">
+        持ち駒: <span id="captured"></span>
+    </div>
+    
+    <div class="board" id="board"></div>
+    
+    <div class="captured">
+        相手の持ち駒: <span id="enemyCaptured"></span>
+    </div>
+
+    <script>
+        // 駒の定義（簡単のため平仮名使用）
+        const pieces = {
+            'K': '王', 'G': '金', 'S': '銀', 'N': '桂', 'L': '香', 'R': '飛', 'B': '角', 'P': '歩'
+        };
+        
+        // 初期盤面（簡略化）
+        let board = [
+            ['L','N','S','G','K','G','S','N','L'],
+            ['', 'R','','','','','','B',''],
+            ['P','P','P','P','P','P','P','P','P'],
+            ['','','','','','','','',''],
+            ['','','','','','','','',''],
+            ['','','','','','','','',''],
+            ['p','p','p','p','p','p','p','p','p'],
+            ['','b','','','','','','r',''],
+            ['l','n','s','g','k','g','s','n','l']
+        ];
+        
+        let selectedCell = null;
+        let currentPlayer = 'player'; // 'player' or 'ai'
+        let captured = [];
+        let enemyCaptured = [];
+        let moveHistory = [];
+        
+        function initBoard() {
+            const boardElement = document.getElementById('board');
+            boardElement.innerHTML = '';
+            
+            for (let row = 0; row < 9; row++) {
+                for (let col = 0; col < 9; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.row = row;
+                    cell.dataset.col = col;
+                    cell.onclick = () => handleCellClick(row, col);
+                    
+                    const piece = board[row][col];
+                    if (piece) {
+                        const pieceElement = document.createElement('div');
+                        pieceElement.className = 'piece';
+                        if (piece === piece.toUpperCase()) {
+                            pieceElement.className += ' enemy';
+                        }
+                        pieceElement.textContent = pieces[piece.toUpperCase()];
+                        cell.appendChild(pieceElement);
+                    }
+                    
+                    boardElement.appendChild(cell);
+                }
+            }
+            updateDisplay();
+        }
+        
+        function handleCellClick(row, col) {
+            if (currentPlayer !== 'player') return;
+            
+            const piece = board[row][col];
+            
+            if (selectedCell) {
+                // 移動実行
+                const [fromRow, fromCol] = selectedCell;
+                if (canMove(fromRow, fromCol, row, col)) {
+                    makeMove(fromRow, fromCol, row, col);
+                    selectedCell = null;
+                    clearHighlights();
+                    
+                    if (currentPlayer === 'ai') {
+                        setTimeout(aiMove, 500);
+                    }
+                } else {
+                    clearSelection();
+                }
+            } else if (piece && piece === piece.toLowerCase()) {
+                // プレイヤーの駒を選択
+                selectedCell = [row, col];
+                highlightPossibleMoves(row, col);
+            }
+        }
+        
+        function canMove(fromRow, fromCol, toRow, toCol) {
+            // 簡単な移動判定（実際はもっと複雑）
+            if (toRow < 0 || toRow >= 9 || toCol < 0 || toCol >= 9) return false;
+            
+            const piece = board[fromRow][fromCol];
+            const target = board[toRow][toCol];
+            
+            // 自分の駒は取れない
+            if (target && target === target.toLowerCase()) return false;
+            
+            // 簡単な移動ルール（歩の例）
+            if (piece === 'p') {
+                return fromRow - 1 === toRow && fromCol === toCol && !target;
+            }
+            
+            // 他の駒は隣接8方向に移動可能（簡略化）
+            const rowDiff = Math.abs(toRow - fromRow);
+            const colDiff = Math.abs(toCol - fromCol);
+            return rowDiff <= 1 && colDiff <= 1;
+        }
+        
+        function makeMove(fromRow, fromCol, toRow, toCol) {
+            const piece = board[fromRow][fromCol];
+            const capturedPiece = board[toRow][toCol];
+            
+            // 履歴保存
+            moveHistory.push({
+                from: [fromRow, fromCol],
+                to: [toRow, toCol],
+                piece: piece,
+                captured: capturedPiece
+            });
+            
+            // 駒取り
+            if (capturedPiece) {
+                if (currentPlayer === 'player') {
+                    captured.push(capturedPiece.toLowerCase());
+                } else {
+                    enemyCaptured.push(capturedPiece.toUpperCase());
+                }
+            }
+            
+            // 移動実行
+            board[toRow][toCol] = piece;
+            board[fromRow][fromCol] = '';
+            
+            // ターン交代
+            currentPlayer = currentPlayer === 'player' ? 'ai' : 'player';
+            initBoard();
+        }
+        
+        function aiMove() {
+            // 超簡単AI：ランダムに移動
+            const moves = [];
+            
+            for (let row = 0; row < 9; row++) {
+                for (let col = 0; col < 9; col++) {
+                    const piece = board[row][col];
+                    if (piece && piece === piece.toUpperCase()) {
+                        // AIの駒の可能な移動先を探す
+                        for (let toRow = 0; toRow < 9; toRow++) {
+                            for (let toCol = 0; toCol < 9; toCol++) {
+                                if (canMoveAI(row, col, toRow, toCol)) {
+                                    moves.push([row, col, toRow, toCol]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if (moves.length > 0) {
+                const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                makeMove(randomMove[0], randomMove[1], randomMove[2], randomMove[3]);
+            }
+        }
+        
+        function canMoveAI(fromRow, fromCol, toRow, toCol) {
+            if (toRow < 0 || toRow >= 9 || toCol < 0 || toCol >= 9) return false;
+            
+            const piece = board[fromRow][fromCol];
+            const target = board[toRow][toCol];
+            
+            // AIの駒は敵の駒を取れない
+            if (target && target === target.toUpperCase()) return false;
+            
+            // 簡単な移動ルール
+            if (piece === 'P') {
+                return fromRow + 1 === toRow && fromCol === toCol && !target;
+            }
+            
+            const rowDiff = Math.abs(toRow - fromRow);
+            const colDiff = Math.abs(toCol - fromCol);
+            return rowDiff <= 2 && colDiff <= 2; // AIは少し広範囲
+        }
+        
+        function highlightPossibleMoves(row, col) {
+            clearHighlights();
+            document.querySelector(`[data-row="${row}"][data-col="${col}"]`).classList.add('selected');
+            
+            for (let toRow = 0; toRow < 9; toRow++) {
+                for (let toCol = 0; toCol < 9; toCol++) {
+                    if (canMove(row, col, toRow, toCol)) {
+                        document.querySelector(`[data-row="${toRow}"][data-col="${toCol}"]`).classList.add('possible');
+                    }
+                }
+            }
+        }
+        
+        function clearHighlights() {
+            document.querySelectorAll('.cell').forEach(cell => {
+                cell.classList.remove('selected', 'possible');
+            });
+        }
+        
+        function clearSelection() {
+            selectedCell = null;
+            clearHighlights();
+        }
+        
+        function updateDisplay() {
+            document.getElementById('turn').textContent = 
+                currentPlayer === 'player' ? 'あなたの番です' : 'AIの番です';
+            document.getElementById('captured').textContent = 
+                captured.map(p => pieces[p.toUpperCase()]).join(' ');
+            document.getElementById('enemyCaptured').textContent = 
+                enemyCaptured.map(p => pieces[p.toUpperCase()]).join(' ');
+        }
+        
+        function newGame() {
+            // 盤面リセット
+            board = [
+                ['L','N','S','G','K','G','S','N','L'],
+                ['', 'R','','','','','','B',''],
+                ['P','P','P','P','P','P','P','P','P'],
+                ['','','','','','','','',''],
+                ['','','','','','','','',''],
+                ['','','','','','','','',''],
+                ['p','p','p','p','p','p','p','p','p'],
+                ['','b','','','','','','r',''],
+                ['l','n','s','g','k','g','s','n','l']
+            ];
+            
+            currentPlayer = 'player';
+            captured = [];
+            enemyCaptured = [];
+            moveHistory = [];
+            selectedCell = null;
+            initBoard();
+        }
+        
+        function undoMove() {
+            if (moveHistory.length === 0) return;
+            
+            const lastMove = moveHistory.pop();
+            const { from, to, piece, captured: capturedPiece } = lastMove;
+            
+            // 移動を戻す
+            board[from[0]][from[1]] = piece;
+            board[to[0]][to[1]] = capturedPiece || '';
+            
+            // 持ち駒を戻す
+            if (capturedPiece) {
+                if (currentPlayer === 'ai') {
+                    captured.pop();
+                } else {
+                    enemyCaptured.pop();
+                }
+            }
+            
+            currentPlayer = currentPlayer === 'player' ? 'ai' : 'player';
+            initBoard();
+        }
+        
+        // ゲーム開始
+        initBoard();
+    </script>
+</body>
+</html>
